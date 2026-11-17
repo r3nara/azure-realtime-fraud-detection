@@ -1,0 +1,70 @@
+
+flowchart TD
+
+    subgraph SOURCE["1. Transaction Generation"]
+        A["Python Transaction Generator"]
+    end
+
+    subgraph INGESTION["2. Streaming Ingestion"]
+        B["Azure Event Hubs"]
+        B1["Partition 0"]
+        B2["Partition 1"]
+        B3["Partition 2"]
+
+        B --> B1
+        B --> B2
+        B --> B3
+    end
+
+    subgraph PROCESSING["3. Real-Time Processing"]
+        C["Fraud Detection Consumer Group"]
+        D["Azure Functions"]
+        E{"Fraud Rules Engine"}
+        F["Normal Transaction"]
+        G["Suspicious Transaction"]
+
+        C --> D
+        D --> E
+        E --> F
+        E --> G
+    end
+
+    subgraph STORAGE["4. Data Lake"]
+        H["Archival Consumer Group"]
+        I["ADLS Gen2 - Raw"]
+        J["ADLS Gen2 - Processed"]
+
+        H --> I
+        F --> J
+        G --> J
+    end
+
+    subgraph ANALYTICS["5. Analytics"]
+        K["PySpark Processing"]
+        L["Delta Lake Tables"]
+        M["Power BI Dashboard"]
+
+        K --> L
+        L --> M
+    end
+
+    subgraph AI["6. AI Intelligence"]
+        N["Curated Data and Documentation"]
+        O["RAG Assistant"]
+
+        N --> O
+    end
+
+    A --> B
+
+    B1 --> C
+    B2 --> C
+    B3 --> C
+
+    B1 --> H
+    B2 --> H
+    B3 --> H
+
+    I --> K
+    J --> K
+    L --> N
