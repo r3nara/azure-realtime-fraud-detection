@@ -17,10 +17,10 @@ def main():
     consumer = TransactionConsumer()
 
     try:
-        processed_count = consumer.receive_events(max_events=10)
+        processed_count = consumer.receive_events(max_events=5)
 
         print()
-        print("CHECKPOINT CONSUMER TEST COMPLETED")
+        print("DURABLE FRAUD DETECTION TEST COMPLETED")
         print(f"Events handled: {processed_count}")
 
     except KeyboardInterrupt:
