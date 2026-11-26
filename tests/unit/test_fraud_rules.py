@@ -32,6 +32,10 @@ def create_transaction(
     )
 
 
+# ============================================================
+# Existing fraud rule tests
+# ============================================================
+
 def test_high_value_rule():
     now = datetime.now(timezone.utc)
     transaction = create_transaction("T001", now, amount=60000)
@@ -146,3 +150,107 @@ def test_normal_transaction_has_low_risk():
     assert result["risk_score"] == 0
     assert result["risk_level"] == "LOW"
     assert result["triggered_rules"] == []
+
+
+# ============================================================
+# Additional boundary-condition tests
+# ============================================================
+
+def test_amount_exactly_at_high_value_threshold_does_not_trigger():
+    now = datetime.now(timezone.utc)
+
+    current = create_transaction(
+        "T007",
+        now,
+        amount=50000,
+    )
+
+    result = evaluate_transaction(current, [])
+
+    assert "F01_HIGH_VALUE" not in result["triggered_rules"]
+    assert result["risk_score"] == 0
+
+
+def test_exactly_five_transactions_do_not_trigger_velocity():
+    now = datetime.now(timezone.utc)
+
+    history = [
+        create_transaction(
+            f"T{i}",
+            now - timedelta(minutes=i),
+        )
+        for i in range(1, 5)
+    ]
+
+    current = create_transaction("T008", now)
+
+    result = evaluate_transaction(current, history)
+
+    assert "F02_HIGH_VELOCITY" not in result["triggered_rules"]
+    assert result["risk_score"] == 0
+
+
+def test_location_change_at_exactly_thirty_minute_boundary_triggers():
+    now = datetime.now(timezone.utc)
+
+    history = [
+        create_transaction(
+            "T009",
+            now - timedelta(minutes=30),
+            location="Chennai",
+        )
+    ]
+
+    current = create_transaction(
+        "T010",
+        now,
+        location="Mumbai",
+    )
+
+    result = evaluate_transaction(current, history)
+
+    assert "F03_LOCATION_CHANGE" in result["triggered_rules"]
+    assert result["risk_score"] == 30
+
+
+def test_old_transactions_outside_velocity_window_are_excluded():
+    now = datetime.now(timezone.utc)
+
+    history = [
+        create_transaction(
+            f"T{i}",
+            now - timedelta(minutes=11),
+        )
+        for i in range(1, 7)
+    ]
+
+    current = create_transaction("T011", now)
+
+    result = evaluate_transaction(current, history)
+
+    assert "F02_HIGH_VELOCITY" not in result["triggered_rules"]
+    assert result["risk_score"] == 0
+
+
+def test_old_failed_transactions_outside_failure_window_are_excluded():
+    now = datetime.now(timezone.utc)
+
+    history = [
+        create_transaction(
+            f"T{i}",
+            now - timedelta(minutes=11),
+            status=TransactionStatus.FAILED,
+        )
+        for i in range(1, 4)
+    ]
+
+    current = create_transaction(
+        "T012",
+        now,
+        status=TransactionStatus.FAILED,
+    )
+
+    result = evaluate_transaction(current, history)
+
+    assert "F04_REPEATED_FAILURES" not in result["triggered_rules"]
+    assert result["risk_score"] == 0

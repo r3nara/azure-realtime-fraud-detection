@@ -21,7 +21,6 @@ class StatefulFraudProcessor:
         durable_store: DurableFraudStore,
         history_window_minutes: int = 60,
     ):
-
         self.durable_store = durable_store
         self.history_window = timedelta(
             minutes=history_window_minutes
@@ -34,9 +33,7 @@ class StatefulFraudProcessor:
         self.lock = RLock()
 
     def _get_customer_state(self, customer_id: str) -> dict:
-
         if customer_id not in self.customer_states:
-
             self.customer_states[customer_id] = (
                 self.durable_store.load_customer_state(
                     customer_id
@@ -45,13 +42,58 @@ class StatefulFraudProcessor:
 
         return self.customer_states[customer_id]
 
+    def _get_or_create_fraud_result(
+        self,
+        transaction: Transaction,
+        recent_transactions: list[Transaction],
+    ) -> dict:
+        """
+        Reuse an existing result or calculate and save a new one.
+
+        Handles the case where another processing attempt creates
+        the result between the initial read and the create operation.
+        """
+        transaction_id = transaction.transaction_id
+
+        existing_result = self.durable_store.load_fraud_result(
+            transaction_id
+        )
+
+        if existing_result is not None:
+            return existing_result
+
+        fraud_result = evaluate_transaction(
+            transaction=transaction,
+            recent_transactions=recent_transactions,
+        )
+
+        created = self.durable_store.save_fraud_result(
+            fraud_result
+        )
+
+        if created:
+            return fraud_result
+
+        # Another attempt may have created the result first.
+        # Retrieve and reuse that canonical saved result.
+        existing_result = self.durable_store.load_fraud_result(
+            transaction_id
+        )
+
+        if existing_result is None:
+            raise RuntimeError(
+                "Fraud result creation reported an existing record, "
+                f"but it could not be retrieved: {transaction_id}"
+            )
+
+        return existing_result
+
     def process_transaction(
         self,
         transaction: Transaction,
     ) -> dict:
 
         with self.lock:
-
             state = self._get_customer_state(
                 transaction.customer_id
             )
@@ -60,7 +102,6 @@ class StatefulFraudProcessor:
 
             # Check durable customer state for duplicates
             if transaction_id in state["processed_transaction_ids"]:
-
                 return {
                     "transaction_id": transaction_id,
                     "customer_id": transaction.customer_id,
@@ -70,7 +111,7 @@ class StatefulFraudProcessor:
                     "triggered_rules": [],
                 }
 
-            # Retrieve previous transactions in the 60-minute window
+            # Retrieve previous transactions in the history window
             cutoff_time = (
                 transaction.timestamp - self.history_window
             )
@@ -81,19 +122,14 @@ class StatefulFraudProcessor:
                 if cutoff_time <= item.timestamp < transaction.timestamp
             ]
 
-            # Evaluate fraud rules
-            fraud_result = evaluate_transaction(
+            # Reuse an existing fraud result during recovery.
+            # Evaluate and save only if no result exists.
+            fraud_result = self._get_or_create_fraud_result(
                 transaction=transaction,
                 recent_transactions=recent_transactions,
             )
 
-            # Save result using create-only storage operation.
-            # If it already exists, this may be a replay after a crash.
-            self.durable_store.save_fraud_result(
-                fraud_result
-            )
-
-            # Build a candidate state without modifying the cached state
+            # Build a candidate state without modifying cached state
             updated_transactions = (
                 state["transactions"] + [transaction]
             )
@@ -102,7 +138,7 @@ class StatefulFraudProcessor:
                 key=lambda item: item.timestamp
             )
 
-            # Retain the latest 60 minutes of event-time history
+            # Retain the latest history window based on event time
             latest_timestamp = max(
                 item.timestamp for item in updated_transactions
             )
@@ -121,7 +157,9 @@ class StatefulFraudProcessor:
                 state["processed_transaction_ids"] | {transaction_id}
             )
 
-            # Persist state before updating the in-memory cache
+            # Persist customer state before updating the cache.
+            # If this fails, the next retry can recover using the
+            # already-saved fraud result.
             self.durable_store.save_customer_state(
                 customer_id=transaction.customer_id,
                 transactions=updated_transactions,

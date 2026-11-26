@@ -23,7 +23,6 @@ class DurableFraudStore:
         container_name: str = "fraud-data",
         history_window_minutes: int = 60,
     ):
-
         self.container = (
             blob_service_client.get_container_client(container_name)
         )
@@ -55,7 +54,6 @@ class DurableFraudStore:
 
         Returns an empty state if no snapshot exists.
         """
-
         blob = self._customer_state_blob(customer_id)
 
         try:
@@ -74,7 +72,6 @@ class DurableFraudStore:
             }
 
         except ResourceNotFoundError:
-
             return {
                 "customer_id": customer_id,
                 "transactions": [],
@@ -88,7 +85,6 @@ class DurableFraudStore:
         processed_transaction_ids: set[str],
     ):
         """Save the customer's current rolling history."""
-
         state = {
             "customer_id": customer_id,
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -116,9 +112,7 @@ class DurableFraudStore:
             True  - new result created
             False - result already exists
         """
-
         transaction_id = fraud_result["transaction_id"]
-
         blob = self._fraud_result_blob(transaction_id)
 
         record = {
@@ -131,16 +125,30 @@ class DurableFraudStore:
                 json.dumps(record, indent=2),
                 overwrite=False,
             )
-
             return True
 
         except ResourceExistsError:
-
             return False
+
+    def load_fraud_result(self, transaction_id: str) -> dict | None:
+        """
+        Retrieve an existing fraud result.
+
+        Returns:
+            The saved fraud result if it exists.
+            None if no result has been saved yet.
+        """
+        blob = self._fraud_result_blob(transaction_id)
+
+        try:
+            content = blob.download_blob().readall()
+            return json.loads(content)
+
+        except ResourceNotFoundError:
+            return None
 
     def fraud_result_exists(self, transaction_id: str) -> bool:
         """Check whether a transaction already has a saved result."""
-
         blob = self._fraud_result_blob(transaction_id)
 
         return blob.exists()

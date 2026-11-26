@@ -84,6 +84,36 @@ def test_save_existing_fraud_result_returns_false(store):
     assert created is False
 
 
+def test_load_existing_fraud_result(store):
+    saved_result = {
+        "transaction_id": "T001",
+        "customer_id": "C101",
+        "risk_score": 30,
+        "risk_level": "MEDIUM",
+        "triggered_rules": ["F01_HIGH_VALUE"],
+        "processed_at": "2026-11-26T10:00:00+00:00",
+    }
+
+    blob = store._fraud_result_blob("T001")
+    download = MagicMock()
+    download.readall.return_value = json.dumps(saved_result).encode("utf-8")
+    blob.download_blob.return_value = download
+
+    result = store.load_fraud_result("T001")
+
+    assert result == saved_result
+    blob.download_blob.assert_called_once()
+
+
+def test_load_missing_fraud_result_returns_none(store):
+    blob = store._fraud_result_blob("T001")
+    blob.download_blob.side_effect = ResourceNotFoundError("Not found")
+
+    result = store.load_fraud_result("T001")
+
+    assert result is None
+
+
 def test_fraud_result_exists(store):
     blob = store._fraud_result_blob("T001")
     blob.exists.return_value = True
