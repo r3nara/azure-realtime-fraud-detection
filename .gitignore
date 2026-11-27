@@ -75,3 +75,13 @@ data/generated/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Linux virtual environment
+.venv-linux/
+
+# Generated project data and Delta tables
+data/
+
+# Downloaded sample files
+bronze-sample.json
+sample_fraud_result.json
